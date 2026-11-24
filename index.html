@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spot Shift</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1424;color:#f1ecdc;font:16px Georgia,serif;overflow:hidden}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+  header{display:flex;gap:24px;align-items:baseline;flex-wrap:wrap;justify-content:center}
+  h1{font-size:22px;margin:0}
+  canvas{max-width:96vw;max-height:72vh;border-radius:14px;touch-action:none}
+  nav{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  button{min-width:48px;min-height:44px;padding:0 14px;font:inherit;color:#f1ecdc;background:#1d3350;border:1px solid #3d5d86;border-radius:10px;cursor:pointer}
+  button:focus-visible{outline:3px solid #e74a17}
+  #shift{background:#c93d10;border-color:#e74a17}
+  p{margin:0;min-height:24px;text-align:center;padding:0 12px}
+</style>
+</head>
+<body>
+<header><h1>Spot Shift</h1><span id="info"></span></header>
+<canvas id="c" aria-label="Tablero del juego"></canvas>
+<p id="msg" role="status"></p>
+<nav>
+  <button data-d="izq" aria-label="Izquierda">←</button><button data-d="arr" aria-label="Arriba">↑</button>
+  <button data-d="aba" aria-label="Abajo">↓</button><button data-d="der" aria-label="Derecha">→</button>
+  <button id="shift">Shift</button><button id="atras">Deshacer (Z)</button><button id="otra">Reiniciar (R)</button>
+  <button id="idioma">English</button>
+</nav>
+<script src="reglas.js"></script><script src="niveles.js"></script>
+<script>
+const T = {
+  es: { nivel: 'Nivel', cambios: 'Cambios', mejor: 'mínimo', intro: 'Flechas o WASD para caminar. Shift o Espacio mueve la luna: las losas claras solo existen con luna y las oscuras solo en sombra.',
+    no: 'Aquí no: Spot se quedaría sin piso.', gatos: 'Los gatos dan un paso cada vez que cambias la luna.', huesos: 'Faltan huesos antes de dormir.',
+    gana: 'Spot llegó a su cama. Enter para seguir.', fin: 'Todos duermen. Gracias por jugar. Enter para volver a empezar.', undo: 'Deshacer (Z)', re: 'Reiniciar (R)', otro: 'English' },
+  en: { nivel: 'Level', cambios: 'Shifts', mejor: 'best', intro: 'Arrows or WASD to walk. Shift or Space moves the moon: pale tiles only exist in moonlight, dark ones only in shadow.',
+    no: 'Not here: Spot would lose the floor.', gatos: 'Cats take one step every time you shift the moon.', huesos: 'Collect every bone before bed.',
+    gana: 'Spot made it to bed. Press Enter.', fin: 'Everyone is asleep. Thanks for playing. Press Enter to start over.', undo: 'Undo (Z)', re: 'Restart (R)', otro: 'Español' },
+};
+let idioma = navigator.language.startsWith('es') ? 'es' : 'en', k = 0, n, e, hist, listo, fase = 1, px, py, aviso = 'intro';
+const c = document.getElementById('c'), g = c.getContext('2d'), U = 64, $ = id => document.getElementById(id);
+function cargar(i) { k = i; n = Reglas.leer(NIVELES[k].filas); e = Reglas.inicial(n); hist = []; listo = false; fase = 1; px = e.x; py = e.y;
+  c.width = n.w * U; c.height = n.h * U; aviso = k === 0 ? 'intro' : k === 4 ? 'gatos' : ''; texto(); }
+function texto() { const t = T[idioma]; $('info').textContent = `${t.nivel} ${k + 1}/${NIVELES.length} · ${t.cambios}: ${e.cambios} (${t.mejor} ${NIVELES[k].minimo})`;
+  $('msg').textContent = aviso ? t[aviso] : ''; $('atras').textContent = t.undo; $('otra').textContent = t.re; $('idioma').textContent = t.otro; document.documentElement.lang = idioma; }
+let ac; function nota(f, d = 0.09) { try { ac = ac || new AudioContext(); const o = ac.createOscillator(), v = ac.createGain(); o.type = 'triangle'; o.frequency.value = f;
+  v.gain.setValueAtTime(0.06, ac.currentTime); v.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + d); o.connect(v).connect(ac.destination); o.start(); o.stop(ac.currentTime + d); } catch (_) {} }
+function poner(s) { hist.push(e); e = s; aviso = '';
+  if (Reglas.gano(n, e)) { listo = true; aviso = k === NIVELES.length - 1 ? 'fin' : 'gana'; nota(523, .3); setTimeout(() => nota(784, .5), 140); }
+  else if (e.x === n.meta[0] && e.y === n.meta[1]) aviso = 'huesos';
+  texto(); }
+function andar(d) { if (listo) return; const s = Reglas.mover(n, e, d); if (s) { nota(s.huesos !== e.huesos ? 660 : 220); poner(s); } }
+function cambiar() { if (listo) return; const s = Reglas.shift(n, e); if (s) { nota(s.luna ? 440 : 330, .25); poner(s); } else { aviso = 'no'; nota(110, .15); texto(); } }
+function atras() { if (hist.length && !listo) { e = hist.pop(); aviso = ''; texto(); } }
+function seguir() { if (listo) cargar((k + 1) % NIVELES.length); }
+const TECLAS = { ArrowLeft: 'izq', ArrowRight: 'der', ArrowUp: 'arr', ArrowDown: 'aba', a: 'izq', d: 'der', w: 'arr', s: 'aba' };
+addEventListener('keydown', ev => { const t = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  if (TECLAS[t]) { ev.preventDefault(); andar(TECLAS[t]); }
+  else if ((t === 'Shift' || t === ' ') && !ev.repeat) { ev.preventDefault(); cambiar(); } else if (t === 'z') atras(); else if (t === 'r') cargar(k);
+  else if (t === 'Enter' && listo) { ev.preventDefault(); seguir(); } });
+document.querySelectorAll('[data-d]').forEach(b => b.onclick = () => andar(b.dataset.d));
+document.querySelectorAll('button').forEach(b => b.addEventListener('click', () => b.blur()));   // para que Espacio no repita el ultimo boton
+$('shift').onclick = cambiar; $('atras').onclick = atras; $('otra').onclick = () => cargar(k); c.onclick = seguir;
+$('idioma').onclick = () => { idioma = idioma === 'es' ? 'en' : 'es'; texto(); };
+const mez = (a, b, t) => a + (b - a) * t;
+function caja(x, y, m, col, r = 10) { g.fillStyle = col; g.beginPath(); g.roundRect(x * U + m, y * U + m, U - 2 * m, U - 2 * m, r); g.fill(); }
+function elip(x, y, a, b, col) { g.fillStyle = col; g.beginPath(); g.ellipse(x, y, a, b, 0, 0, 7); g.fill(); }
+function spot(x, y) { const X = x * U + U / 2, Y = y * U + U / 2; elip(X - 4, Y + 10, 20, 14, '#e9dfca'); elip(X - 24, Y, 6, 10, '#e9dfca');
+  g.strokeStyle = '#b32025'; g.lineWidth = 5; g.beginPath(); g.ellipse(X + 1, Y + 8, 12, 12, 0, 0.2, 2.6); g.stroke();
+  elip(X + 22, Y - 22, 5, 11, '#cdbd97'); elip(X + 8, Y - 8, 16, 15, '#f3ebd9'); elip(X - 6, Y - 6, 6, 12, '#cdbd97');
+  elip(X + 4, Y - 10, 2.6, 3.2, '#111'); elip(X + 15, Y - 10, 2.6, 3.2, '#111'); elip(X + 11, Y + 5, 3.5, 5, '#e2828c'); elip(X + 11, Y - 2, 4.5, 3.4, '#111'); }
+function gato(x, y) { const X = x * U + U / 2, Y = y * U + U / 2, p = '#7c828c'; elip(X - 2, Y + 12, 18, 11, p); elip(X + 8, Y - 4, 13, 12, p);
+  g.fillStyle = p; for (const s of [-1, 1]) { g.beginPath(); g.moveTo(X + 8 + s * 12, Y - 4); g.lineTo(X + 8 + s * 10, Y - 24); g.lineTo(X + 8 + s * 1, Y - 12); g.fill(); }
+  elip(X + 3, Y - 5, 2.5, 4, '#e0cf5a'); elip(X + 13, Y - 5, 2.5, 4, '#e0cf5a'); }
+function pintar() {
+  fase = mez(fase, e.luna ? 1 : 0, 0.16); px = mez(px, e.x, 0.3); py = mez(py, e.y, 0.3);
+  g.fillStyle = '#0d1a2b'; g.fillRect(0, 0, c.width, c.height);
+  for (let y = 0; y < n.h; y++) for (let x = 0; x < n.w; x++) {
+    const t = Reglas.celda(n, x, y);
+    if (t === '#') { caja(x, y, 0, '#0f6f63', 0); continue; }
+    caja(x, y, 1, '#3a2e22', 4);
+    if (t === '.') { caja(x, y, 2, '#a97c4e', 4); continue; }
+    const v = t === 'L' ? fase : 1 - fase; caja(x, y, 1, '#0a1220', 4); g.globalAlpha = 0.14 + 0.86 * v;
+    caja(x, y, 3 + (1 - v) * 10, t === 'L' ? '#dfe8f7' : '#4a3f86', 8); g.globalAlpha = 1;
+    g.strokeStyle = t === 'L' ? '#dfe8f7' : '#8d80dc'; g.lineWidth = 2; g.setLineDash(v > 0.5 ? [] : [5, 6]); g.beginPath(); g.roundRect(x * U + 5, y * U + 5, U - 10, U - 10, 8); g.stroke(); g.setLineDash([]);
+    g.beginPath(); g.arc(x * U + U / 2, y * U + U / 2, 7, 0, 7); g.fillStyle = t === 'L' ? '#9fb3d6' : '#221a52'; t === 'L' ? g.stroke() : g.fill();
+  }
+  const [mx, my] = n.meta; caja(mx, my, 6, '#f1ecdc', 14); elip(mx * U + 20, my * U + 24, 7, 7, '#3c6ebe'); elip(mx * U + 42, my * U + 40, 8, 8, '#e74a17'); elip(mx * U + 40, my * U + 18, 5, 5, '#e1af3c');
+  n.huesos.forEach(([x, y], i) => { if (e.huesos >> i & 1) return; const X = x * U + U / 2, Y = y * U + U / 2; g.fillStyle = '#fff6df'; g.fillRect(X - 12, Y - 4, 24, 8); for (const s of [-1, 1]) for (const q of [-1, 1]) elip(X + s * 13, Y + q * 5, 6, 6, '#fff6df'); });
+  n.gatos.forEach(([x, y]) => gato(x + 1 - fase, y));
+  spot(px, py);
+  g.fillStyle = `rgba(8,14,50,${0.32 * (1 - fase)})`; g.fillRect(0, 0, c.width, c.height);
+  requestAnimationFrame(pintar);
+}
+cargar(0); pintar();
+</script>
+</body>
+</html>
